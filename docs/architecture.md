@@ -1,13 +1,42 @@
-# 🏗️ Architecture & Data Flow
+# 🏗️ System Architecture & Data Flow
 
-## 1. System Overview
-ระบบ Demo Log Management พัฒนาด้วยสถาปัตยกรรม Microservices บน Docker Compose รองรับการเก็บ Log จากหลากหลายแหล่งข้อมูล (AWS CloudTrail, Microsoft 365, UDP Syslog) นำมาปรับรูปแบบให้อยู่ในมาตรฐานเดียวกัน (Normalization) บันทึกลง OpenSearch และแสดงผลผ่าน Web Dashboard พร้อมระบบแจ้งเตือน (Alerts)
+## 1. Overview
+ระบบ Log Management Demo ออกแบบขึ้นมาเพื่อรองรับ Log จากหลายแหล่งข้อมูล (Multi-vendor Ingestion) โดยทำการ Normalize ให้อยู่ในโครงสร้าง Central Schema เดียวกันก่อนจัดเก็บลง OpenSearch เพื่อใช้ในการคีย์ค้นหา แสดงผล Visual Dashboard และแจ้งเตือนเหตุการณ์สุ่มเสี่ยง (Alerts)
 
-## 2. Component Architecture
-- Ingestion Layer (Backend): พัฒนาด้วย Express.js (Node.js) รับ Log ผ่าน HTTP API (POST /api/ingest) พอร์ต 8081 และ UDP Syslog พอร์ต 1514
-- Normalization Layer: ใช้ backend/normalizer.js แปลง Schema ของแต่ละ Vendor ให้อยู่ในรูปแบบ Central Schema
-- Storage Layer: OpenSearch 2.16 (Port 9200) ทำหน้าที่จัดเก็บ Index app-logs และรองรับ Query
-- Presentation Layer (Frontend): Nginx Web Server (Port 3000/3001) แสดง Web UI และเรียกใช้งาน REST APIs (/api/logs และ /api/alerts)
+---
 
-## 3. Data Flow
-Log Sources -> Ingestion (HTTP/UDP) -> Normalizer -> OpenSearch Storage -> REST API -> Frontend Dashboard & Alerts
+## 2. High-Level Data Flow
+
+[ Log Sources ]
+  - Syslog Devices (UDP 1514)
+  - REST API Clients (HTTP 8081)
+  - AWS CloudTrail (JSON)
+  - Microsoft 365 / AD Logs (JSON)
+       |
+       v
+[ Ingestion & Normalizer Layer (Backend / Node.js) ]
+  - UDP Receiver & HTTP Ingest API
+  - Normalization Engine (Central Schema Conversion)
+  - Alert Rule Engine (LogonFailed / Severity >= 8)
+       |
+       v
+[ Storage & Search Layer ]
+  - OpenSearch 2.16 (Port 9200 - Index: app-logs)
+       |
+       v
+[ Presentation Layer (Frontend / Nginx) ]
+  - Dashboard UI (Port 3001 - Search, Filter, Top N & Alerts)
+
+---
+
+## 3. Core Components
+
+* Ingestion Layer: รองรับการรับข้อมูล 2 โปรโตคอลหลัก (HTTP POST API และ UDP Syslog)
+* Normalization Layer: แปลงข้อมูลจากทุก Vendor เข้าสู่ Central Schema เช่น @timestamp, vendor, product, event_type, severity, src_ip, และ user
+* Storage Layer: ใช้ OpenSearch ทำหน้าที่เป็น Search & Indexing Engine รองรับการค้นหาข้อมูลปริมาณมากแบบ Real-time
+* Alert System: สแกนข้อมูล Log หากพบ event_type === "LogonFailed" หรือ severity >= 8 จะทำการระบุเป็น Critical Alert เพื่อนำไปแสดงผลบน Dashboard แถบสีแดง
+
+---
+
+## 4. Multi-Tenant Model
+ข้อมูลทุก Event จะถูกกำกับด้วยฟิลด์ tenant (เช่น demoA, demoB) ทำให้สามารถกรองข้อมูลแยกตามรายลูกค้าหรือตามบทบาทผู้ใช้งาน (RBAC) ผ่าน Query Parameter ในระดับ API ได้
