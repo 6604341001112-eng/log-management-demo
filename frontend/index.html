@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log Management Dashboard</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; background-color: #f8f9fa; }
+    h1 { color: #2c3e50; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+    .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab-btn { padding: 10px 20px; border: none; background: #e9ecef; cursor: pointer; border-radius: 6px; font-weight: bold; }
+    .tab-btn.active { background: #007bff; color: white; }
+    .tab-btn.alert-tab.active { background: #dc3545; color: white; }
+    .badge-count { background: #dc3545; color: white; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-left: 5px; }
+    table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-radius: 8px; }
+    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #e9ecef; }
+    th { background-color: #343a40; color: white; }
+    tr.row-alert { background-color: #f8d7da !important; color: #721c24; font-weight: bold; }
+    .badge { padding: 4px 10px; border-radius: 12px; color: white; font-size: 12px; font-weight: bold; }
+    .bg-aws { background-color: #ff9900; }
+    .bg-m365 { background-color: #00a4ef; }
+    .bg-alert { background-color: #dc3545; }
+    .bg-unknown { background-color: #6c757d; }
+  </style>
+</head>
+<body>
+
+  <h1>📊 Centralized Log Management</h1>
+  
+  <div class="nav-tabs">
+    <button class="tab-btn active" id="btn-all" onclick="switchTab('all')">📋 All Logs</button>
+    <button class="tab-btn alert-tab" id="btn-alert" onclick="switchTab('alert')">🚨 Critical Alerts <span id="alert-badge" class="badge-count">0</span></button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Vendor / Source</th>
+        <th>Event Action</th>
+        <th>User</th>
+        <th>Source IP</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody id="log-table">
+      <tr><td colspan="6" style="text-align:center;">Loading logs...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    let currentTab = 'all';
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('btn-all').classList.toggle('active', tab === 'all');
+      document.getElementById('btn-alert').classList.toggle('active', tab === 'alert');
+      fetchLogs();
+    }
+
+    async function fetchLogs() {
+      const tbody = document.getElementById('log-table');
+      const endpoint = currentTab === 'alert' ? 'http://localhost:8081/api/alerts' : 'http://localhost:8081/api/logs';
+      
+      try {
+        const res = await fetch(endpoint);
+        const data = await res.json();
+        
+        const alertRes = await fetch('http://localhost:8081/api/alerts');
+        const alertData = await alertRes.json();
+        document.getElementById('alert-badge').innerText = alertData.length;
+
+        if (!data || data.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No logs found.</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = '';
+        data.forEach(item => {
+          const log = item._source;
+          const vendor = log.vendor || 'unknown';
+          const isAlert = log.event_type === 'LogonFailed' || (log.severity && log.severity >= 8);
+          
+          let vendorClass = 'bg-unknown';
+          if (vendor === 'AWS') vendorClass = 'bg-aws';
+          if (vendor === 'Microsoft') vendorClass = 'bg-m365';
+
+          const timeStr = log['@timestamp'] ? new Date(log['@timestamp']).toLocaleString() : '-';
+
+          const row = `<tr class="${isAlert ? 'row-alert' : ''}">
+            <td>${timeStr}</td>
+            <td><span class="badge ${vendorClass}">${vendor.toUpperCase()}</span></td>
+            <td><code>${log.event_type || log.action || '-'}</code></td>
+            <td>${log.user || '-'}</td>
+            <td>${log.src_ip || '-'}</td>
+            <td>${isAlert ? '<span class="badge bg-alert">ALERT</span>' : 'NORMAL'}</td>
+          </tr>`;
+          tbody.innerHTML += row;
+        });
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; color:red;">Error: ${err.message}</td></tr>`;
+      }
+    }
+
+    fetchLogs();
+    setInterval(fetchLogs, 4000);
+  </script>
+</body>
+</html>
