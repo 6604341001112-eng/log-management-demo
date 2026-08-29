@@ -6,9 +6,9 @@ app.use(express.json());
 
 const client = new Client({ node: process.env.OPENSEARCH_NODE || "http://opensearch:9200" });
 
-// 0. API Login (แก้ Error 404 /api/login)
+// 0. API Login
 app.post("/api/login", (req, res) => {
-  const { username, password } = req.body;
+  const { username } = req.body;
   if (username === "admin") {
     res.json({ status: "ok", token: "mock-admin-token", role: "admin", tenant: "all" });
   } else {
