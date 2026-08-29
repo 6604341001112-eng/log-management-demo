@@ -314,7 +314,6 @@
     </div>
 
     <script>
-      // ประกาศตัวแปร Global
       let currentTab = "all";
       let timelineChartObj = null;
       let vendorChartObj = null;
@@ -333,6 +332,7 @@
             localStorage.setItem("token", data.token);
             localStorage.setItem("role", data.role);
             localStorage.setItem("username", data.username);
+            localStorage.setItem("tenant", data.tenant || "demoA"); // 🔒 บันทึก tenant
             checkAuth();
           } else {
             document.getElementById("login-err").innerText =
@@ -351,6 +351,8 @@
       function checkAuth() {
         const token = localStorage.getItem("token");
         const role = localStorage.getItem("role");
+        const tenantSelect = document.getElementById("tenant-select");
+
         if (token) {
           document.getElementById("login-screen").style.display = "none";
           document.getElementById("dashboard-screen").style.display = "block";
@@ -361,8 +363,12 @@
           const retBtn = document.getElementById("retention-btn");
           if (role !== "Admin") {
             retBtn.style.display = "none";
+            // 🔒 ถ้าเป็น Viewer ให้ล็อก Tenant Select ไว้ที่ demoA
+            tenantSelect.value = localStorage.getItem("tenant") || "demoA";
+            tenantSelect.disabled = true;
           } else {
             retBtn.style.display = "inline-block";
+            tenantSelect.disabled = false;
           }
 
           fetchLogs();
@@ -406,13 +412,20 @@
         const selectedTenant = document.getElementById("tenant-select").value;
         const timeRange = document.getElementById("time-filter").value;
 
-        const tenantQuery =
-          selectedTenant === "all" ? "" : `tenant=${selectedTenant}`;
+        // 🔒 อ่านค่า role และ user_tenant เพื่อส่งแนบไปเช็ก RBAC ที่ Backend
+        const role = localStorage.getItem("role") || "Viewer";
+        const userTenant = localStorage.getItem("tenant") || "demoA";
+
+        const queryParams = new URLSearchParams({
+          tenant: selectedTenant,
+          role: role,
+          user_tenant: userTenant,
+        }).toString();
 
         const endpoint =
           currentTab === "alert"
-            ? `/api/alerts${tenantQuery ? "?" + tenantQuery : ""}`
-            : `/api/logs${tenantQuery ? "?" + tenantQuery : ""}`;
+            ? `/api/alerts?${queryParams}`
+            : `/api/logs?${queryParams}`;
 
         try {
           const res = await fetch(endpoint);
@@ -425,7 +438,7 @@
           let data = filterByTime(rawData, timeRange);
 
           try {
-            const alertEndpoint = `/api/alerts${tenantQuery ? "?" + tenantQuery : ""}`;
+            const alertEndpoint = `/api/alerts?${queryParams}`;
             const alertRes = await fetch(alertEndpoint);
             const alertResData = await alertRes.json();
             const alertRaw = Array.isArray(alertResData)
@@ -585,7 +598,6 @@
         fetchLogs();
       }
 
-      // ตรวจสอบ Authentication ตอนเริ่มต้น
       checkAuth();
       setInterval(() => {
         if (localStorage.getItem("token")) fetchLogs();

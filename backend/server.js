@@ -20,6 +20,7 @@ app.post("/api/login", (req, res) => {
       token: "mock-jwt-token-admin",
       role: "Admin",
       username: "admin",
+      tenant: "all",
     });
   }
 
@@ -29,6 +30,7 @@ app.post("/api/login", (req, res) => {
       token: "mock-jwt-token-viewer",
       role: "Viewer",
       username: "viewer",
+      tenant: "demoA", // 🔒 ผูก Viewer เข้ากับ Tenant demoA
     });
   }
 
@@ -38,20 +40,26 @@ app.post("/api/login", (req, res) => {
   });
 });
 
-// 📋 2. Get All Logs ( Tenant Isolation)
+// 📋 2. Get All Logs (RBAC + Tenant Isolation)
 app.get("/api/logs", async (req, res) => {
-  const tenantId = req.query.tenant || "all";
+  const role = req.query.role || "Viewer";
+  const userTenant = req.query.user_tenant || "demoA";
+  const requestedTenant = req.query.tenant || "all";
 
   const filterConditions = [];
-  // 🔒 ถ้าไม่ได้เลือก 'all' ให้กรองเฉพาะ tenant ที่ระบุ
-  if (tenantId !== "all") {
-    filterConditions.push({ term: { "tenant.keyword": tenantId } });
+
+  // 🔒 RBAC Logic: Viewer เห็นเฉพาะ Tenant ตัวเองเสมอ
+  if (role === "Viewer") {
+    filterConditions.push({ term: { "tenant.keyword": userTenant } });
+  } else if (role === "Admin" && requestedTenant !== "all") {
+    filterConditions.push({ term: { "tenant.keyword": requestedTenant } });
   }
 
   try {
     const result = await client.search({
       index: "logs-index",
       body: {
+        size: 100, // ดึงสูงสุด 100 รายการ
         query: {
           bool: {
             must: [{ match_all: {} }],
@@ -67,19 +75,25 @@ app.get("/api/logs", async (req, res) => {
   }
 });
 
-// 🚨 3. Get Critical Alerts ( Tenant Isolation)
+// 🚨 3. Get Critical Alerts (RBAC + Tenant Isolation)
 app.get("/api/alerts", async (req, res) => {
-  const tenantId = req.query.tenant || "all";
+  const role = req.query.role || "Viewer";
+  const userTenant = req.query.user_tenant || "demoA";
+  const requestedTenant = req.query.tenant || "all";
 
   const filterConditions = [];
-  if (tenantId !== "all") {
-    filterConditions.push({ term: { "tenant.keyword": tenantId } });
+
+  if (role === "Viewer") {
+    filterConditions.push({ term: { "tenant.keyword": userTenant } });
+  } else if (role === "Admin" && requestedTenant !== "all") {
+    filterConditions.push({ term: { "tenant.keyword": requestedTenant } });
   }
 
   try {
     const result = await client.search({
       index: "logs-index",
       body: {
+        size: 100,
         query: {
           bool: {
             must: [{ range: { severity: { gte: 8 } } }],
@@ -95,9 +109,7 @@ app.get("/api/alerts", async (req, res) => {
   }
 });
 
-app.listen(8080, () => console.log("Backend running on port 8080"));
-
-// 🧹 4. Retention Clean Endpoint (ลบ Log เก่าเกิน 7 วัน)
+// 🧹 4. Retention Clean Endpoint
 app.delete("/api/retention/clean", async (req, res) => {
   try {
     const sevenDaysAgo = new Date(
@@ -125,30 +137,4 @@ app.delete("/api/retention/clean", async (req, res) => {
   }
 });
 
-// 🔑 Login Endpoint (ปรับให้ตรงกับ Frontend)
-app.post("/api/login", (req, res) => {
-  const { username, password } = req.body;
-
-  if (username === "admin" && password === "admin123") {
-    return res.status(200).json({
-      success: true,
-      token: "mock-jwt-token-admin",
-      role: "Admin",
-      username: "admin",
-    });
-  }
-
-  if (username === "viewer" && password === "viewer123") {
-    return res.status(200).json({
-      success: true,
-      token: "mock-jwt-token-viewer",
-      role: "Viewer",
-      username: "viewer",
-    });
-  }
-
-  return res.status(401).json({
-    success: false,
-    error: "Invalid username or password",
-  });
-});
+app.listen(8080, () => console.log("Backend running on port 8080"));

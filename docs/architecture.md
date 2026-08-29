@@ -1,6 +1,7 @@
 # 🏗️ System Architecture
 
 ## 🔄 Data Flow
+
 Log Source -> Ingest -> Normalizer -> OpenSearch -> Backend -> Frontend
 
 - **Log Source:** แหล่งกำเนิด Log จากอุปกรณ์ Network, Server หรือ Application ภายนอก
