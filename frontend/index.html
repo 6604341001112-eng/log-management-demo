@@ -150,7 +150,7 @@
           localStorage.setItem("username", data.username);
           checkAuth();
         } else {
-          document.getElementById("login-err").innerText = data.error;
+          document.getElementById("login-err").innerText = data.error || "Login Failed";
         }
       }
 
@@ -168,7 +168,6 @@
           document.getElementById("user-display").innerText = localStorage.getItem("username");
           document.getElementById("role-display").innerText = role;
           
-          // ซ่อนปุ่ม Retention สำหรับ Viewer (RBAC)
           const retBtn = document.getElementById("retention-btn");
           if (role !== "Admin") {
             retBtn.style.display = "none";
@@ -302,7 +301,7 @@
           headers: { "Authorization": `Bearer ${token}` }
         });
         const json = await res.json();
-        alert(json.message || json.error);
+        alert(json.message || json.error || "Retention Cleaned");
         fetchLogs();
       }
 

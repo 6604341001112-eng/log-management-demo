@@ -1,23 +1,26 @@
-const express = require("express");
-const { Client } = require("@opensearch-project/opensearch");
+const express = require('express');
+const { Client } = require('@opensearch-project/opensearch');
 
 const app = express();
 app.use(express.json());
 
-const client = new Client({ node: process.env.OPENSEARCH_NODE || "http://opensearch:9200" });
+const client = new Client({ node: process.env.OPENSEARCH_NODE || 'http://opensearch:9200' });
 
-// 0. API Login
-app.post("/api/login", (req, res) => {
+// 1. API Login (แมพข้อมูลตามที่ frontend index.html รอรับ)
+app.post('/api/login', (req, res) => {
   const { username } = req.body;
-  if (username === "admin") {
-    res.json({ status: "ok", token: "mock-admin-token", role: "admin", tenant: "all" });
+  if (username === 'admin') {
+    res.json({ success: true, token: 'mock-admin-token', role: 'Admin', username: 'admin' });
+  } else if (username === 'viewer') {
+    res.json({ success: true, token: 'mock-viewer-token', role: 'Viewer', username: 'viewer' });
   } else {
-    res.json({ status: "ok", token: "mock-user-token", role: "viewer", tenant: "demoA" });
+    // Default ให้เข้าเป็น Admin
+    res.json({ success: true, token: 'mock-admin-token', role: 'Admin', username: username || 'admin' });
   }
 });
 
-// 1. Ingest Route
-app.post("/ingest", async (req, res) => {
+// 2. Ingest Route
+app.post('/ingest', async (req, res) => {
   try {
     const data = req.body;
     const doc = {
@@ -30,19 +33,24 @@ app.post("/ingest", async (req, res) => {
       status: data.status || "SUCCESS",
       severity: parseInt(data.severity || 1, 10)
     };
-    await client.index({ index: "app-logs", body: doc, refresh: true });
-    res.status(200).json({ status: "ok", data: doc });
+    await client.index({ index: 'app-logs', body: doc, refresh: true });
+    res.status(200).json({ status: 'ok', data: doc });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. Fetch Logs Route
-app.get("/api/logs", async (req, res) => {
+// 3. Get Logs Route (รองรับ tenant filter)
+app.get('/api/logs', async (req, res) => {
   try {
+    const { tenant } = req.query;
+    let query = { match_all: {} };
+    if (tenant && tenant !== 'all') {
+      query = { term: { "tenant.keyword": tenant } };
+    }
     const result = await client.search({
-      index: "app-logs",
-      body: { query: { match_all: {} }, size: 100, sort: [{ "@timestamp": { order: "desc" } }] }
+      index: 'app-logs',
+      body: { query: query, size: 100, sort: [{ "@timestamp": { order: "desc" } }] }
     });
     const logs = result.body.hits.hits.map(h => h._source);
     res.json(logs);
@@ -51,21 +59,22 @@ app.get("/api/logs", async (req, res) => {
   }
 });
 
-// 3. Retention Clean Route
+// 4. Retention Clean Route
 const handleRetentionClean = async (req, res) => {
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const response = await client.deleteByQuery({
-      index: "app-logs",
+      index: 'app-logs',
       body: { query: { range: { "@timestamp": { lt: sevenDaysAgo } } } },
       refresh: true
     });
-    res.status(200).json({ status: "ok", deleted: response.body.deleted || 0 });
+    res.status(200).json({ success: true, message: `Cleaned ${response.body.deleted || 0} old logs.` });
   } catch (err) {
-    res.status(500).json({ status: "error", error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 };
-app.post("/api/retention/clean", handleRetentionClean);
-app.delete("/api/retention/clean", handleRetentionClean);
 
-app.listen(8080, () => console.log("Backend running on port 8080"));
+app.post('/api/retention/clean', handleRetentionClean);
+app.delete('/api/retention/clean', handleRetentionClean);
+
+app.listen(8080, () => console.log('Backend running on port 8080'));
