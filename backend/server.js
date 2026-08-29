@@ -1,13 +1,23 @@
-const express = require('express');
-const { Client } = require('@opensearch-project/opensearch');
+const express = require("express");
+const { Client } = require("@opensearch-project/opensearch");
 
 const app = express();
 app.use(express.json());
 
-const client = new Client({ node: process.env.OPENSEARCH_NODE || 'http://opensearch:9200' });
+const client = new Client({ node: process.env.OPENSEARCH_NODE || "http://opensearch:9200" });
 
-// 1. Route Ingest
-app.post('/ingest', async (req, res) => {
+// 0. API Login (แก้ Error 404 /api/login)
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body;
+  if (username === "admin") {
+    res.json({ status: "ok", token: "mock-admin-token", role: "admin", tenant: "all" });
+  } else {
+    res.json({ status: "ok", token: "mock-user-token", role: "viewer", tenant: "demoA" });
+  }
+});
+
+// 1. Ingest Route
+app.post("/ingest", async (req, res) => {
   try {
     const data = req.body;
     const doc = {
@@ -20,24 +30,18 @@ app.post('/ingest', async (req, res) => {
       status: data.status || "SUCCESS",
       severity: parseInt(data.severity || 1, 10)
     };
-
-    await client.index({
-      index: 'app-logs',
-      body: doc,
-      refresh: true
-    });
-
-    res.status(200).json({ status: 'ok', data: doc });
+    await client.index({ index: "app-logs", body: doc, refresh: true });
+    res.status(200).json({ status: "ok", data: doc });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. Fetch Logs (Query จาก app-logs)
-app.get('/api/logs', async (req, res) => {
+// 2. Fetch Logs Route
+app.get("/api/logs", async (req, res) => {
   try {
     const result = await client.search({
-      index: 'app-logs',
+      index: "app-logs",
       body: { query: { match_all: {} }, size: 100, sort: [{ "@timestamp": { order: "desc" } }] }
     });
     const logs = result.body.hits.hits.map(h => h._source);
@@ -47,28 +51,21 @@ app.get('/api/logs', async (req, res) => {
   }
 });
 
-// 3. Retention Clean Route (แก้ Error 404 /api/retention/clean)
+// 3. Retention Clean Route
 const handleRetentionClean = async (req, res) => {
   try {
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const response = await client.deleteByQuery({
-      index: 'app-logs',
-      body: {
-        query: {
-          range: {
-            "@timestamp": { lt: sevenDaysAgo }
-          }
-        }
-      },
+      index: "app-logs",
+      body: { query: { range: { "@timestamp": { lt: sevenDaysAgo } } } },
       refresh: true
     });
-    res.status(200).json({ status: 'ok', deleted: response.body.deleted || 0 });
+    res.status(200).json({ status: "ok", deleted: response.body.deleted || 0 });
   } catch (err) {
-    res.status(500).json({ status: 'error', error: err.message });
+    res.status(500).json({ status: "error", error: err.message });
   }
 };
+app.post("/api/retention/clean", handleRetentionClean);
+app.delete("/api/retention/clean", handleRetentionClean);
 
-app.post('/api/retention/clean', handleRetentionClean);
-app.delete('/api/retention/clean', handleRetentionClean);
-
-app.listen(8080, () => console.log('Backend running on port 8080'));
+app.listen(8080, () => console.log("Backend running on port 8080"));
