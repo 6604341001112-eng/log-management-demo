@@ -1,10 +1,10 @@
 # 🏗️ System Architecture
 
 ## 🔄 Data Flow
-cLog Source -> Ingest -> Normalizer -> OpenSearch -> Backend -> Frontend
+Log Source -> Ingest -> Normalizer -> OpenSearch -> Backend -> Frontend
 
 - **Log Source:** แหล่งกำเนิด Log จากอุปกรณ์ Network, Server หรือ Application ภายนอก
-- **Ingest:** รับข้อมูล Log เข้าสู่ระบบผ่าน 2 ช่องทางหลัก (Syslog UDP Port 1514 และ HTTP API `/ingest`)
+- **Ingest:** จุดรับข้อมูล Log เข้าสู่ระบบผ่าน 2 ช่องทางหลัก (Syslog UDP Port 1514 และ HTTP API `/ingest`)
 - **Normalizer:** แปลงโครงสร้าง Log จากค่ายต่างๆ ให้อยู่ในรูปแบบมาตรฐาน (Standard Schema)
 - **OpenSearch:** ฐานข้อมูล Search Engine ทำหน้าที่บันทึกและทำ Index ข้อมูล Log
 - **Backend:** Express API ควบคุม Business Logic และกั้นสิทธิ์ข้อมูลด้วย `"term": { "tenant.keyword": "tenant" } }`
