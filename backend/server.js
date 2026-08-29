@@ -1,74 +1,74 @@
 const express = require('express');
-const cors = require('cors');
-const dgram = require('dgram');
 const { Client } = require('@opensearch-project/opensearch');
-const { normalizeLog } = require('./normalizer');
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-const PORT = process.env.PORT || 8080;
-const UDP_PORT = process.env.UDP_PORT || 1514;
-const OPENSEARCH_URL = process.env.OPENSEARCH_URL || 'http://opensearch:9200';
+const client = new Client({ node: process.env.OPENSEARCH_NODE || 'http://opensearch:9200' });
 
-const client = new Client({ node: OPENSEARCH_URL });
+// 1. Route Ingest
+app.post('/ingest', async (req, res) => {
+  try {
+    const data = req.body;
+    const doc = {
+      "@timestamp": data["@timestamp"] || data.timestamp || new Date().toISOString(),
+      tenant: data.tenant || "demoA",
+      vendor: data.vendor || data.source || "AWS",
+      action: data.action || data.event_type || "UNKNOWN",
+      user: data.user || "-",
+      src_ip: data.src_ip || data.ip || "-",
+      status: data.status || "SUCCESS",
+      severity: parseInt(data.severity || 1, 10)
+    };
 
+    await client.index({
+      index: 'app-logs',
+      body: doc,
+      refresh: true
+    });
+
+    res.status(200).json({ status: 'ok', data: doc });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Fetch Logs (Query จาก app-logs)
 app.get('/api/logs', async (req, res) => {
   try {
     const result = await client.search({
       index: 'app-logs',
-      body: { query: { match_all: {} }, sort: [{ "@timestamp": { order: "desc" } }] }
+      body: { query: { match_all: {} }, size: 100, sort: [{ "@timestamp": { order: "desc" } }] }
     });
-    res.json(result.body.hits.hits);
+    const logs = result.body.hits.hits.map(h => h._source);
+    res.json(logs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.json([]);
   }
 });
 
-// Route สำหรับ Alerts
-app.get('/api/alerts', async (req, res) => {
+// 3. Retention Clean Route (แก้ Error 404 /api/retention/clean)
+const handleRetentionClean = async (req, res) => {
   try {
-    const result = await client.search({
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const response = await client.deleteByQuery({
       index: 'app-logs',
       body: {
         query: {
-          bool: {
-            should: [
-              { match: { event_type: "LogonFailed" } },
-              { range: { severity: { gte: 8 } } }
-            ]
+          range: {
+            "@timestamp": { lt: sevenDaysAgo }
           }
-        },
-        sort: [{ "@timestamp": { order: "desc" } }]
-      }
+        }
+      },
+      refresh: true
     });
-    res.json(result.body.hits.hits);
+    res.status(200).json({ status: 'ok', deleted: response.body.deleted || 0 });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ status: 'error', error: err.message });
   }
-});
+};
 
-app.post('/api/ingest', async (req, res) => {
-  try {
-    const normalized = normalizeLog(req.body, 'http-api');
-    await client.index({ index: 'app-logs', body: normalized, refresh: true });
-    res.status(201).json({ success: true, data: normalized });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/retention/clean', handleRetentionClean);
+app.delete('/api/retention/clean', handleRetentionClean);
 
-app.listen(PORT, () => console.log(`HTTP Server running on port ${PORT}`));
-
-const udpServer = dgram.createSocket('udp4');
-udpServer.on('message', async (msg) => {
-  try {
-    const rawMsg = msg.toString();
-    const normalized = normalizeLog({ action: 'syslog', message: rawMsg }, 'syslog');
-    await client.index({ index: 'app-logs', body: normalized, refresh: true });
-  } catch (err) {
-    console.error('UDP Error:', err);
-  }
-});
-udpServer.bind(UDP_PORT, () => console.log(`UDP Syslog listening on port ${UDP_PORT}`));
+app.listen(8080, () => console.log('Backend running on port 8080'));
